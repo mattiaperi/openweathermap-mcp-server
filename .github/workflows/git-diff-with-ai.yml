@@ -1,0 +1,126 @@
+name: 'Describe Git Changes with AI'
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main, dev ]
+  workflow_dispatch:
+
+jobs:
+  describe-changes:
+    permissions:
+      contents: read
+      models: read
+      pull-requests: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract git changes
+        id: extract-changes
+        shell: bash
+        run: |
+          # Determine what to compare based on event type
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "Analyzing pull request changes..."
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            echo "Analyzing push changes..."
+            BASE_SHA=$(git rev-parse HEAD^ || git rev-parse HEAD~1)
+            HEAD_SHA=$(git rev-parse HEAD)
+          fi
+
+          # Get list of changed files
+          CHANGED_FILES=$(git diff --name-only $BASE_SHA $HEAD_SHA)
+          echo "Changed files detected:"
+          echo "$CHANGED_FILES"
+
+          # Get commit messages
+          COMMIT_MESSAGES=$(git log --pretty=format:"%s" $BASE_SHA..$HEAD_SHA)
+          echo "Commit messages:"
+          echo "$COMMIT_MESSAGES"
+
+          # Create a diff summary
+          DIFF_SUMMARY=$(git diff --stat $BASE_SHA $HEAD_SHA)
+          echo "Diff summary:"
+          echo "$DIFF_SUMMARY"
+
+          # Store values in output variables
+          {
+            echo "changed_files<<EOF"
+            echo "$CHANGED_FILES"
+            echo "EOF"
+
+            echo "commit_messages<<EOF"
+            echo "$COMMIT_MESSAGES"
+            echo "EOF"
+
+            echo "diff_summary<<EOF"
+            echo "$DIFF_SUMMARY"
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Create AI prompt
+        id: create-prompt
+        shell: bash
+        run: |
+          echo "prompt<<EOF" >> $GITHUB_OUTPUT
+          echo "Please analyze these git changes and provide a concise summary:" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "Changed files:" >> $GITHUB_OUTPUT
+          echo "${{ steps.extract-changes.outputs.changed_files }}" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "Commit messages:" >> $GITHUB_OUTPUT
+          echo "${{ steps.extract-changes.outputs.commit_messages }}" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "Diff summary:" >> $GITHUB_OUTPUT
+          echo "${{ steps.extract-changes.outputs.diff_summary }}" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "Please provide: 1) A brief summary of the main changes 2) The type of changes (feature, bugfix, refactor, etc.) 3) Any notable technical details" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Analyze changes with AI
+        id: ai-analysis
+        uses: actions/ai-inference@v1
+        with:
+          prompt: ${{ steps.create-prompt.outputs.prompt }}
+
+      - name: Process AI response with Bash
+        id: process-response
+        shell: bash
+        run: |
+          # Create a file with the response using quoted heredoc to prevent interpretation
+          cat > /tmp/ai_response.txt << 'EOT'
+          ${{ steps.ai-analysis.outputs.response }}
+          EOT
+
+          # Print to console (safely)
+          echo "## Git Changes Analysis"
+          cat /tmp/ai_response.txt
+
+          # Write to step summary (safely)
+          {
+            echo "## Git Changes Summary"
+            echo ""
+            cat /tmp/ai_response.txt
+          } >> $GITHUB_STEP_SUMMARY
+
+          # Store in output for other steps
+          {
+            echo "ai_response<<EOF"
+            cat /tmp/ai_response.txt
+            echo "EOF"
+          } >> $GITHUB_OUTPUT
+
+      - name: Comment on PR (if applicable)
+        if: github.event_name == 'pull_request'
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --body "## 🤖 AI Analysis of Changes
+
+          $(cat /tmp/ai_response.txt)"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
