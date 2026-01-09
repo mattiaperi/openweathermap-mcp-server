@@ -91,7 +91,7 @@ All tools return the complete OpenWeatherMap API response, allowing LLMs to extr
 ```
 ├── server.py          # MCP server implementation
 ├── requirements.txt   # Python dependencies
-└── README.md         # This file
+└── README.md          # This file
 ```
 
 ### Adding New Tools
