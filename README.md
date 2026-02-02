@@ -68,6 +68,33 @@ python test_mcp_client.py # Will prompt for city name
 }
 ```
 
+or better (edit <PATH_TO_REPO> and <OPENWEATHER_API_KEY> accordingly):
+
+```json
+{
+  "mcpServers": {
+    "openweather": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "<PATH_TO_REPO>/openweathermap-mcp-server",
+        "run",
+        "server.py"
+      ],
+      "disabled": false,
+      "env": {
+        "OPENWEATHER_API_KEY": "<OPENWEATHER_API_KEY>"
+      },
+      "autoApprove": [
+        "get_current_weather",
+        "get_weather_forecast",
+        "get_air_pollution"
+      ]
+    }
+  }
+}
+```
+
 2. Restart Amazon Q and ask: "What's the weather like in Tokyo?"
 
 ## Available Tools
